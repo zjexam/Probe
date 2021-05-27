@@ -1,0 +1,53 @@
+name: Dashboard image
+
+on:
+  push:
+    branches:
+      - "master"
+    paths-ignore:
+      - "cmd/playground/**"
+      - "cmd/agent/**"
+      - "script/**"
+      - "*.md"
+      - ".*"
+      - ".github/workflows/agent.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Log into registry
+        run: |
+          echo "${{ secrets.CR_PAT }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+          echo "${{ secrets.ALI_PAT }}" | docker login registry.cn-hangzhou.aliyuncs.com -u ${{ secrets.ALI_USER }} --password-stdin
+      - name: Build dasbboard image
+        run: |
+          go env
+          go test -v ./... 
+          docker build -t probe-dasbboard -f Dockerfile .
+      - name: Push dasbboard image
+        run: |
+          GHRC_IMAGE_NAME=$(echo "ghcr.io/${{ github.repository_owner }}/probe-dashboard" | tr '[:upper:]' '[:lower:]')
+          if [ ${{ github.repository_owner }} = "xos" ]
+          then ALI_IMAGE_NAME=$(echo "registry.cn-hangzhou.aliyuncs.com/nans/probe-dashboard")
+          else ALI_IMAGE_NAME=$(echo "registry.cn-hangzhou.aliyuncs.com/${{ github.repository_owner }}/probe-dashboard" | tr '[:upper:]' '[:lower:]')
+          fi
+          docker tag probe-dasbboard $GHRC_IMAGE_NAME
+          docker tag probe-dasbboard $ALI_IMAGE_NAME
+          docker push $GHRC_IMAGE_NAME
+          docker push $ALI_IMAGE_NAME
+      - name: Purge jsdelivr cache
+        run: |
+          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/install.sh
+          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/fetch.sh
+          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/probe-agent.service
+          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/docker-compose.yaml
+          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/config.yaml
+          LOWER_USERNAME=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/install.sh
+          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/fetch.sh
+          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/probe-agent.service
+          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/docker-compose.yaml
+          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/config.yaml
