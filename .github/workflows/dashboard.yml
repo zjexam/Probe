@@ -21,7 +21,7 @@ jobs:
       - name: Log into registry
         run: |
           echo "${{ secrets.CR_PAT }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
-          echo "${{ secrets.ALI_PAT }}" | docker login registry.cn-hangzhou.aliyuncs.com -u ${{ secrets.ALI_USER }} --password-stdin
+          echo "${{ secrets.ALI_PAT }}" | docker login registry.cn-shanghai.aliyuncs.com -u ${{ secrets.ALI_USER }} --password-stdin
       - name: Build dasbboard image
         run: |
           go env
@@ -31,8 +31,8 @@ jobs:
         run: |
           GHRC_IMAGE_NAME=$(echo "ghcr.io/${{ github.repository_owner }}/probe-dashboard" | tr '[:upper:]' '[:lower:]')
           if [ ${{ github.repository_owner }} = "xos" ]
-          then ALI_IMAGE_NAME=$(echo "registry.cn-hangzhou.aliyuncs.com/nans/probe-dashboard")
-          else ALI_IMAGE_NAME=$(echo "registry.cn-hangzhou.aliyuncs.com/${{ github.repository_owner }}/probe-dashboard" | tr '[:upper:]' '[:lower:]')
+          then ALI_IMAGE_NAME=$(echo "registry.cn-shanghai.aliyuncs.com/dns/probe-dashboard")
+          else ALI_IMAGE_NAME=$(echo "registry.cn-shanghai.aliyuncs.com/${{ github.repository_owner }}/probe-dashboard" | tr '[:upper:]' '[:lower:]')
           fi
           docker tag probe-dasbboard $GHRC_IMAGE_NAME
           docker tag probe-dasbboard $ALI_IMAGE_NAME
