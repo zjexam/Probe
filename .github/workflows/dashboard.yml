@@ -30,7 +30,7 @@ jobs:
       - name: Push dasbboard image
         run: |
           GHRC_IMAGE_NAME=$(echo "ghcr.io/${{ github.repository_owner }}/probe-dashboard" | tr '[:upper:]' '[:lower:]')
-          if [ ${{ github.repository_owner }} = "xos" ]
+          if [ ${{ github.repository_owner }} = "xOS" ]
           then ALI_IMAGE_NAME=$(echo "registry.cn-shanghai.aliyuncs.com/dns/probe-dashboard")
           else ALI_IMAGE_NAME=$(echo "registry.cn-shanghai.aliyuncs.com/${{ github.repository_owner }}/probe-dashboard" | tr '[:upper:]' '[:lower:]')
           fi
