@@ -4,9 +4,10 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/xos/probe/model"
-	"github.com/xos/probe/pkg/mygin"
-	"github.com/xos/probe/service/dao"
+	"github.com/XOS/Probe/pkg/mygin"
+	"github.com/XOS/Probe/service/dao"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/github"
 )
 
 type guestPage struct {
@@ -26,21 +27,19 @@ func (gp *guestPage) serve() {
 	gr.GET("/login", gp.login)
 
 	oauth := &oauth2controller{
+		oauth2Config: &oauth2.Config{
+			ClientID:     dao.Conf.GitHub.ClientID,
+			ClientSecret: dao.Conf.GitHub.ClientSecret,
+			Scopes:       []string{},
+			Endpoint:     github.Endpoint,
+		},
 		r: gr,
 	}
 	oauth.serve()
 }
 
 func (gp *guestPage) login(c *gin.Context) {
-	LoginType := "GitHub"
-	RegistrationLink := "https://github.com/join"
-	if dao.Conf.Oauth2.Type == model.ConfigTypeGitee {
-		LoginType = "Gitee"
-		RegistrationLink = "https://gitee.com/signup"
-	}
 	c.HTML(http.StatusOK, "dashboard/login", mygin.CommonEnvironment(c, gin.H{
-		"Title":            "登录",
-		"LoginType":        LoginType,
-		"RegistrationLink": RegistrationLink,
+		"Title": "登录",
 	}))
 }

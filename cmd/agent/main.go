@@ -2,96 +2,99 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
-	"flag"
 	"fmt"
+	"io"
 	"log"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/blang/semver"
-	"github.com/genkiroid/cert"
-	"github.com/go-ping/ping"
 	"github.com/p14yground/go-github-selfupdate/selfupdate"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
-	"github.com/xos/probe/cmd/agent/monitor"
-	"github.com/xos/probe/model"
-	"github.com/xos/probe/pkg/utils"
-	pb "github.com/xos/probe/proto"
-	"github.com/xos/probe/service/dao"
-	"github.com/xos/probe/service/rpc"
+	"github.com/XOS/Probe/model"
+	pb "github.com/XOS/Probe/proto"
+	"github.com/XOS/Probe/service/dao"
+	"github.com/XOS/Probe/service/monitor"
+	"github.com/XOS/Probe/service/rpc"
 )
 
-func init() {
-	cert.TimeoutSeconds = 30
-	http.DefaultClient.Timeout = time.Second * 5
-}
-
 var (
+	clientID     string
 	server       string
 	clientSecret string
+	debug        bool
 	version      string
-)
 
-var (
-	client     pb.ProbeServiceClient
-	ctx        = context.Background()
-	updateCh   = make(chan struct{}) // Agent 自动更新间隔
-	httpClient = &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		Timeout: time.Second * 30,
+	rootCmd = &cobra.Command{
+		Use:   "probe-agent",
+		Short: "「探针面板」监控、备份、站点管理一站式服务",
+		Long: `探针面板
+================================
+监控、备份、站点管理一站式服务
+啦啦啦，啦啦啦，我是 mjj 小行家`,
+		Run:     run,
+		Version: version,
 	}
 )
 
-const (
-	delayWhenError = time.Second * 10 // Agent 重连间隔
+var (
+	reporting      bool
+	client         pb.ProbeServiceClient
+	ctx            = context.Background()
+	delayWhenError = time.Second * 10
+	updateCh       = make(chan struct{}, 0)
 )
-
+/**
+func doSelfUpdate() {
+	defer func() {
+		time.Sleep(time.Minute * 20)
+		updateCh <- struct{}{}
+	}()
+	v := semver.MustParse(version)
+	log.Println("check update", v)
+	latest, err := selfupdate.UpdateSelf(v, "XOS/Probe")
+	if err != nil {
+		log.Println("Binary update failed:", err)
+		return
+	}
+	if latest.Version.Equals(v) {
+		// latest version is the same as current version. It means current binary is up to date.
+		log.Println("Current binary is the latest version", version)
+	} else {
+		log.Println("Successfully updated to version", latest.Version)
+		os.Exit(1)
+	}
+}
+**/
 func main() {
 	// 来自于 GoReleaser 的版本号
 	dao.Version = version
 
-	var debug bool
-	flag.String("i", "", "unused 旧Agent配置兼容")
-	flag.BoolVar(&debug, "d", false, "开启调试信息")
-	flag.StringVar(&server, "s", "localhost:5555", "管理面板RPC端口")
-	flag.StringVar(&clientSecret, "p", "", "Agent连接Secret")
-	flag.Parse()
+	rootCmd.PersistentFlags().StringVarP(&server, "server", "s", "localhost:5555", "客户端ID")
+	rootCmd.PersistentFlags().StringVarP(&clientID, "id", "i", "", "客户端ID")
+	rootCmd.PersistentFlags().StringVarP(&clientSecret, "secret", "p", "", "客户端Secret")
+	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "开启Debug")
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
 
+func run(cmd *cobra.Command, args []string) {
 	dao.Conf = &model.Config{
 		Debug: debug,
 	}
-
-	if server == "" || clientSecret == "" {
-		flag.Usage()
-		return
-	}
-
-	run()
-}
-
-func run() {
 	auth := rpc.AuthHandler{
+		ClientID:     clientID,
 		ClientSecret: clientSecret,
 	}
 
 	// 上报服务器信息
 	go reportState()
-	// 更新IP信息
-	go monitor.UpdateIP()
 
-	if _, err := semver.Parse(version); err == nil {
+	if version != "" {
 		go func() {
 			for range updateCh {
 				go doSelfUpdate()
@@ -102,207 +105,77 @@ func run() {
 
 	var err error
 	var conn *grpc.ClientConn
+	var hc pb.ProbeService_HeartbeatClient
 
 	retry := func() {
-		println("Error to close connection ...")
+		log.Println("Error to close connection ...")
 		if conn != nil {
 			conn.Close()
 		}
 		time.Sleep(delayWhenError)
-		println("Try to reconnect ...")
+		log.Println("Try to reconnect ...")
 	}
 
 	for {
-		timeOutCtx, cancel := context.WithTimeout(ctx, time.Second*5)
-		conn, err = grpc.DialContext(timeOutCtx, server, grpc.WithInsecure(), grpc.WithPerRPCCredentials(&auth))
+		conn, err = grpc.Dial(server, grpc.WithInsecure(), grpc.WithPerRPCCredentials(&auth))
 		if err != nil {
-			println("grpc.Dial err: ", err)
-			cancel()
+			log.Printf("grpc.Dial err: %v", err)
 			retry()
 			continue
 		}
-		cancel()
 		client = pb.NewProbeServiceClient(conn)
 		// 第一步注册
-		_, err = client.ReportSystemInfo(ctx, monitor.GetHost().PB())
+		_, err = client.Register(ctx, monitor.GetHost().PB())
 		if err != nil {
-			println("client.ReportSystemInfo err: ", err)
+			log.Printf("client.Register err: %v", err)
 			retry()
 			continue
 		}
-		// 执行 Task
-		tasks, err := client.RequestTask(ctx, monitor.GetHost().PB())
+		// 心跳接收控制命令
+		hc, err = client.Heartbeat(ctx, &pb.Beat{
+			Timestamp: fmt.Sprintf("%v", time.Now()),
+		})
 		if err != nil {
-			println("client.RequestTask err: ", err)
+			log.Printf("client.Heartbeat err: %v", err)
 			retry()
 			continue
 		}
-		err = receiveTasks(tasks)
-		println("receiveTasks exit to main: ", err)
+		err = receiveCommand(hc)
+		log.Printf("receiveCommand exit to main: %v", err)
 		retry()
 	}
 }
 
-func receiveTasks(tasks pb.ProbeService_RequestTaskClient) error {
+func receiveCommand(hc pb.ProbeService_HeartbeatClient) error {
 	var err error
-	defer println("receiveTasks exit", time.Now(), "=>", err)
+	var action *pb.Command
+	defer log.Printf("receiveCommand exit %v %v => %v", time.Now(), action, err)
 	for {
-		var task *pb.Task
-		task, err = tasks.Recv()
+		action, err = hc.Recv()
+		if err == io.EOF {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
-		go doTask(task)
+		switch action.GetType() {
+		default:
+			log.Printf("Unknown action: %v", action)
+		}
 	}
-}
-
-func doTask(task *pb.Task) {
-	var result pb.TaskResult
-	result.Id = task.GetId()
-	result.Type = task.GetType()
-	switch task.GetType() {
-	case model.TaskTypeHTTPGET:
-		start := time.Now()
-		resp, err := httpClient.Get(task.GetData())
-		if err == nil {
-			// 检查 HTTP Response 状态
-			result.Delay = float32(time.Since(start).Microseconds()) / 1000.0
-			if resp.StatusCode > 399 || resp.StatusCode < 200 {
-				err = errors.New("\n应用错误：" + resp.Status)
-			}
-		}
-		if err == nil {
-			// 检查 SSL 证书信息
-			serviceUrl, err := url.Parse(task.GetData())
-			if err == nil {
-				if serviceUrl.Scheme == "https" {
-					c := cert.NewCert(serviceUrl.Host)
-					if c.Error != "" {
-						result.Data = "SSL证书错误：" + c.Error
-					} else {
-						result.Data = c.Issuer + "|" + c.NotAfter
-						result.Successful = true
-					}
-				} else {
-					result.Successful = true
-				}
-			} else {
-				result.Data = "URL解析错误：" + err.Error()
-			}
-		} else {
-			// HTTP 请求失败
-			result.Data = err.Error()
-		}
-	case model.TaskTypeICMPPing:
-		pinger, err := ping.NewPinger(task.GetData())
-		if err == nil {
-			pinger.SetPrivileged(true)
-			pinger.Count = 5
-			pinger.Timeout = time.Second * 20
-			err = pinger.Run() // Blocks until finished.
-		}
-		if err == nil {
-			result.Delay = float32(pinger.Statistics().AvgRtt.Microseconds()) / 1000.0
-			result.Successful = true
-		} else {
-			result.Data = err.Error()
-		}
-	case model.TaskTypeTCPPing:
-		start := time.Now()
-		conn, err := net.DialTimeout("tcp", task.GetData(), time.Second*10)
-		if err == nil {
-			conn.Write([]byte("ping\n"))
-			conn.Close()
-			result.Delay = float32(time.Since(start).Microseconds()) / 1000.0
-			result.Successful = true
-		} else {
-			result.Data = err.Error()
-		}
-	case model.TaskTypeCommand:
-		startedAt := time.Now()
-		var cmd *exec.Cmd
-		var endCh = make(chan struct{})
-		pg, err := utils.NewProcessExitGroup()
-		if err != nil {
-			// 进程组创建失败，直接退出
-			result.Data = err.Error()
-			client.ReportTask(ctx, &result)
-			return
-		}
-		timeout := time.NewTimer(time.Hour * 2)
-		if utils.IsWindows() {
-			cmd = exec.Command("cmd", "/c", task.GetData())
-		} else {
-			cmd = exec.Command("sh", "-c", task.GetData())
-		}
-		pg.AddProcess(cmd)
-		go func() {
-			select {
-			case <-timeout.C:
-				result.Data = "任务执行超时\n"
-				close(endCh)
-				pg.Dispose()
-			case <-endCh:
-				timeout.Stop()
-			}
-		}()
-		output, err := cmd.Output()
-		if err != nil {
-			result.Data += fmt.Sprintf("%s\n%s", string(output), err.Error())
-		} else {
-			close(endCh)
-			result.Data = string(output)
-			result.Successful = true
-		}
-		result.Delay = float32(time.Since(startedAt).Seconds())
-	default:
-		println("Unknown action: ", task)
-	}
-	client.ReportTask(ctx, &result)
 }
 
 func reportState() {
-	var lastReportHostInfo time.Time
 	var err error
-	defer println("reportState exit", time.Now(), "=>", err)
+	defer log.Printf("reportState exit %v => %v", time.Now(), err)
 	for {
 		if client != nil {
 			monitor.TrackNetworkSpeed()
-			_, err = client.ReportSystemState(ctx, monitor.GetState(dao.ReportDelay).PB())
+			_, err = client.ReportState(ctx, monitor.GetState(dao.ReportDelay).PB())
 			if err != nil {
-				println("reportState error", err)
+				log.Printf("reportState error %v", err)
 				time.Sleep(delayWhenError)
 			}
-			if lastReportHostInfo.Before(time.Now().Add(-10 * time.Minute)) {
-				lastReportHostInfo = time.Now()
-				client.ReportSystemInfo(ctx, monitor.GetHost().PB())
-			}
 		}
-	}
-}
-
-func doSelfUpdate() {
-	defer func() {
-		time.Sleep(time.Minute * 20)
-		updateCh <- struct{}{}
-	}()
-	v := semver.MustParse(version)
-	println("Check update", v)
-	latest, err := selfupdate.UpdateSelf(v, "xos/probe")
-	if err != nil {
-		println("Binary update failed:", err)
-		return
-	}
-	if latest.Version.Equals(v) {
-		println("Current binary is up to date", version)
-	} else {
-		println("Upgrade successfully", latest.Version)
-		os.Exit(1)
-	}
-}
-
-func println(v ...interface{}) {
-	if dao.Conf.Debug {
-		log.Println(v...)
 	}
 }

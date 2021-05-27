@@ -1,35 +1,28 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"time"
 
-	pb "github.com/xos/probe/proto"
+	pb "github.com/XOS/Probe/proto"
 )
 
+// Server ..
 type Server struct {
 	Common
 	Name         string
-	Tag          string // 分组名
-	Secret       string `gorm:"uniqueIndex" json:"-"`
-	Note         string `json:"-"` // 管理员可见备注
-	DisplayIndex int    // 展示排序，越大越靠前
+	DisplayIndex int    // 展示权重，越大越靠前
+	Secret       string `json:"-"`
 
-	Host       *Host      `gorm:"-"`
-	State      *HostState `gorm:"-"`
-	LastActive time.Time  `gorm:"-"`
+	Host       *Host  `gorm:"-"`
+	State      *State `gorm:"-"`
+	LastActive time.Time
 
-	TaskClose  chan error                        `gorm:"-" json:"-"`
-	TaskStream pb.ProbeService_RequestTaskServer `gorm:"-" json:"-"`
+	Stream      pb.ProbeService_HeartbeatServer `gorm:"-" json:"-"`
+	StreamClose chan<- error                    `gorm:"-" json:"-"`
 }
 
 func (s Server) Marshal() template.JS {
-	name, _ := json.Marshal(s.Name)
-	tag, _ := json.Marshal(s.Tag)
-	note, _ := json.Marshal(s.Note)
-	secret, _ := json.Marshal(s.Secret)
-	return template.JS(fmt.Sprintf(`{"ID":%d,"Name":%s,"Secret":%s,"DisplayIndex":%d,"Tag":%s,"Note":%s}`,
-		s.ID, name, secret, s.DisplayIndex, tag, note))
+	return template.JS(fmt.Sprintf(`{"ID":%d,"Name":"%s","Secret":"%s"}`, s.ID, s.Name, s.Secret))
 }

@@ -84,7 +84,7 @@ func (n *Notification) Send(message string) error {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: verifySSL},
 	}
-	client := &http.Client{Transport: transCfg, Timeout: time.Minute * 5}
+	client := &http.Client{Transport: transCfg, Timeout: time.Minute * 10}
 
 	reqBody, err := n.reqBody(message)
 
@@ -112,9 +112,9 @@ func (n *Notification) Send(message string) error {
 
 func replaceParamsInString(str string, message string, mod func(string) string) string {
 	if mod != nil {
-		str = strings.ReplaceAll(str, "#NG#", mod(message))
+		str = strings.ReplaceAll(str, "#NEZHA#", mod(message))
 	} else {
-		str = strings.ReplaceAll(str, "#NG#", message)
+		str = strings.ReplaceAll(str, "#NEZHA#", message)
 	}
 	return str
 }

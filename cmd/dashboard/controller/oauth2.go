@@ -2,25 +2,24 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/naiba/com"
+
 	"github.com/gin-gonic/gin"
-	"github.com/google/go-github/github"
 	GitHubAPI "github.com/google/go-github/github"
 	"golang.org/x/oauth2"
-	GitHubOauth2 "golang.org/x/oauth2/github"
 
-	"github.com/xos/probe/model"
-	"github.com/xos/probe/pkg/mygin"
-	"github.com/xos/probe/pkg/utils"
-	"github.com/xos/probe/service/dao"
+	"github.com/XOS/Probe/model"
+	"github.com/XOS/Probe/pkg/mygin"
+	"github.com/XOS/Probe/service/dao"
 )
 
 type oauth2controller struct {
-	r gin.IRoutes
+	oauth2Config *oauth2.Config
+	r            gin.IRoutes
 }
 
 func (oa *oauth2controller) serve() {
@@ -28,67 +27,38 @@ func (oa *oauth2controller) serve() {
 	oa.r.GET("/oauth2/callback", oa.callback)
 }
 
-func (oa *oauth2controller) getCommonOauth2Config(c *gin.Context) *oauth2.Config {
-	var endPoint oauth2.Endpoint
-	if dao.Conf.Oauth2.Type == model.ConfigTypeGitee {
-		endPoint = oauth2.Endpoint{
-			AuthURL:  "https://gitee.com/oauth/authorize",
-			TokenURL: "https://gitee.com/oauth/token",
-		}
-	} else {
-		endPoint = GitHubOauth2.Endpoint
-	}
-
-	return &oauth2.Config{
-		ClientID:     dao.Conf.Oauth2.ClientID,
-		ClientSecret: dao.Conf.Oauth2.ClientSecret,
-		Scopes:       []string{},
-		Endpoint:     endPoint,
-		RedirectURL:  oa.getRedirectURL(c),
-	}
-}
-
-func (oa *oauth2controller) getRedirectURL(c *gin.Context) string {
-	schame := "http://"
-	if strings.HasPrefix(c.Request.Referer(), "https://") {
-		schame = "https://"
-	}
-	return schame + c.Request.Host + "/oauth2/callback"
-}
-
 func (oa *oauth2controller) login(c *gin.Context) {
-	state := utils.RandStringBytesMaskImprSrcUnsafe(6)
-	dao.Cache.Set(fmt.Sprintf("%s%s", model.CacheKeyOauth2State, c.ClientIP()), state, 0)
-	url := oa.getCommonOauth2Config(c).AuthCodeURL(state, oauth2.AccessTypeOnline)
+	state := com.RandomString(6)
+	dao.Cache.Set(fmt.Sprintf("%s%s", model.CtxKeyOauth2State, c.ClientIP()), state, 0)
+	url := oa.oauth2Config.AuthCodeURL(state, oauth2.AccessTypeOnline)
 	c.Redirect(http.StatusFound, url)
 }
 
 func (oa *oauth2controller) callback(c *gin.Context) {
-	var err error
 	// 验证登录跳转时的 State
-	state, ok := dao.Cache.Get(fmt.Sprintf("%s%s", model.CacheKeyOauth2State, c.ClientIP()))
+	state, ok := dao.Cache.Get(fmt.Sprintf("%s%s", model.CtxKeyOauth2State, c.ClientIP()))
 	if !ok || state.(string) != c.Query("state") {
-		err = errors.New("非法的登录方式")
+		mygin.ShowErrorPage(c, mygin.ErrInfo{
+			Code:  http.StatusBadRequest,
+			Title: "登录失败",
+			Msg:   fmt.Sprintf("错误信息：%s", "非法的登录方式"),
+		}, true)
+		return
 	}
-	oauth2Config := oa.getCommonOauth2Config(c)
+	// 拉取验证用户信息
 	ctx := context.Background()
-	var otk *oauth2.Token
-	if err == nil {
-		otk, err = oauth2Config.Exchange(ctx, c.Query("code"))
+	otk, err := oa.oauth2Config.Exchange(ctx, c.Query("code"))
+	if err != nil {
+		mygin.ShowErrorPage(c, mygin.ErrInfo{
+			Code:  http.StatusBadRequest,
+			Title: "登录失败",
+			Msg:   fmt.Sprintf("错误信息：%s", err),
+		}, true)
+		return
 	}
-	var client *GitHubAPI.Client
-	if err == nil {
-		oc := oauth2Config.Client(ctx, otk)
-		if dao.Conf.Oauth2.Type == model.ConfigTypeGitee {
-			client, err = GitHubAPI.NewEnterpriseClient("https://gitee.com/api/v5/", "https://gitee.com/api/v5/", oc)
-		} else {
-			client = GitHubAPI.NewClient(oc)
-		}
-	}
-	var gu *github.User
-	if err == nil {
-		gu, _, err = client.Users.Get(ctx, "")
-	}
+	oc := oa.oauth2Config.Client(ctx, otk)
+	client := GitHubAPI.NewClient(oc)
+	gu, _, err := client.Users.Get(ctx, "")
 	if err != nil {
 		mygin.ShowErrorPage(c, mygin.ErrInfo{
 			Code:  http.StatusBadRequest,
@@ -98,10 +68,12 @@ func (oa *oauth2controller) callback(c *gin.Context) {
 		return
 	}
 	var isAdmin bool
-	for _, admin := range strings.Split(dao.Conf.Oauth2.Admin, ",") {
-		if admin != "" && gu.GetLogin() == admin {
-			isAdmin = true
-			break
+	if gu.GetID() > 0 {
+		for _, admin := range strings.Split(dao.Conf.GitHub.Admin, ",") {
+			if fmt.Sprintf("%d", gu.GetID()) == admin {
+				isAdmin = true
+				break
+			}
 		}
 	}
 	if !isAdmin {

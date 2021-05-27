@@ -5,9 +5,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/xos/probe/model"
+	"github.com/XOS/Probe/model"
 )
 
+// ErrInfo ..
 type ErrInfo struct {
 	Code  uint64
 	Title string
@@ -16,6 +17,7 @@ type ErrInfo struct {
 	Btn   string
 }
 
+// ShowErrorPage ..
 func ShowErrorPage(c *gin.Context, i ErrInfo, isPage bool) {
 	if isPage {
 		c.HTML(http.StatusOK, "dashboard/error", CommonEnvironment(c, gin.H{

@@ -2,65 +2,21 @@ package rpc
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"time"
 
-	"github.com/xos/probe/model"
-	pb "github.com/xos/probe/proto"
-	"github.com/xos/probe/service/dao"
+	"github.com/XOS/Probe/model"
+	pb "github.com/XOS/Probe/proto"
+	"github.com/XOS/Probe/service/dao"
 )
 
+// NezhaHandler ..
 type ProbeHandler struct {
 	Auth *AuthHandler
 }
 
-func (s *ProbeHandler) ReportTask(c context.Context, r *pb.TaskResult) (*pb.Receipt, error) {
-	var err error
-	var clientID uint64
-	if clientID, err = s.Auth.Check(c); err != nil {
-		return nil, err
-	}
-	if r.GetType() != model.TaskTypeCommand {
-		dao.ServiceSentinelShared.Dispatch(dao.ReportData{
-			Data:     r,
-			Reporter: clientID,
-		})
-	} else {
-		// 处理上报的计划任务
-		dao.CronLock.RLock()
-		defer dao.CronLock.RUnlock()
-		cr := dao.Crons[r.GetId()]
-		if cr != nil {
-			if cr.PushSuccessful && r.GetSuccessful() {
-				dao.SendNotification(fmt.Sprintf("成功计划任务：%s ，服务器：%d，日志：\n%s", cr.Name, clientID, r.GetData()), false)
-			}
-			if !r.GetSuccessful() {
-				dao.SendNotification(fmt.Sprintf("失败计划任务：%s ，服务器：%d，日志：\n%s", cr.Name, clientID, r.GetData()), false)
-			}
-			dao.DB.Model(cr).Updates(model.Cron{
-				LastExecutedAt: time.Now().Add(time.Second * -1 * time.Duration(r.GetDelay())),
-				LastResult:     r.GetSuccessful(),
-			})
-		}
-	}
-	return &pb.Receipt{Proced: true}, nil
-}
-
-func (s *ProbeHandler) RequestTask(h *pb.Host, stream pb.ProbeService_RequestTaskServer) error {
-	var clientID uint64
-	var err error
-	if clientID, err = s.Auth.Check(stream.Context()); err != nil {
-		return err
-	}
-	closeCh := make(chan error)
-	dao.ServerLock.RLock()
-	dao.ServerList[clientID].TaskStream = stream
-	dao.ServerList[clientID].TaskClose = closeCh
-	dao.ServerLock.RUnlock()
-	return <-closeCh
-}
-
-func (s *ProbeHandler) ReportSystemState(c context.Context, r *pb.State) (*pb.Receipt, error) {
+// ReportState ..
+func (s *ProbeHandler) ReportState(c context.Context, r *pb.State) (*pb.Receipt, error) {
 	var clientID uint64
 	var err error
 	if clientID, err = s.Auth.Check(c); err != nil {
@@ -74,7 +30,28 @@ func (s *ProbeHandler) ReportSystemState(c context.Context, r *pb.State) (*pb.Re
 	return &pb.Receipt{Proced: true}, nil
 }
 
-func (s *ProbeHandler) ReportSystemInfo(c context.Context, r *pb.Host) (*pb.Receipt, error) {
+// Heartbeat ..
+func (s *ProbeHandler) Heartbeat(r *pb.Beat, stream pb.ProbeService_HeartbeatServer) error {
+	var clientID uint64
+	var err error
+	defer log.Printf("Heartbeat exit server:%v err:%v", clientID, err)
+	if clientID, err = s.Auth.Check(stream.Context()); err != nil {
+		return err
+	}
+	// 放入在线服务器列表
+	dao.ServerLock.RLock()
+	closeCh := make(chan error)
+	dao.ServerList[clientID].StreamClose = closeCh
+	dao.ServerList[clientID].Stream = stream
+	dao.ServerLock.RUnlock()
+	select {
+	case err = <-closeCh:
+		return err
+	}
+}
+
+// Register ..
+func (s *ProbeHandler) Register(c context.Context, r *pb.Host) (*pb.Receipt, error) {
 	var clientID uint64
 	var err error
 	if clientID, err = s.Auth.Check(c); err != nil {
@@ -83,16 +60,6 @@ func (s *ProbeHandler) ReportSystemInfo(c context.Context, r *pb.Host) (*pb.Rece
 	host := model.PB2Host(r)
 	dao.ServerLock.RLock()
 	defer dao.ServerLock.RUnlock()
-	if dao.Conf.EnableIPChangeNotification &&
-		dao.Conf.IgnoredIPNotificationServerIDs[clientID] != struct{}{} &&
-		dao.ServerList[clientID].Host != nil &&
-		dao.ServerList[clientID].Host.IP != "" &&
-		host.IP != "" &&
-		dao.ServerList[clientID].Host.IP != host.IP {
-		dao.SendNotification(fmt.Sprintf(
-			"IP变更提醒 服务器：%s ，旧IP：%s，新IP：%s。",
-			dao.ServerList[clientID].Name, dao.ServerList[clientID].Host.IP, host.IP), true)
-	}
 	dao.ServerList[clientID].Host = &host
 	return &pb.Receipt{Proced: true}, nil
 }

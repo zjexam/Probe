@@ -13,24 +13,22 @@
         <table class="ui very basic table">
             <thead>
                 <tr>
-                    <th>ID(排序)</th>
-                    <th>名称</th>
-                    <th>分组</th>
-                    <th>IP</th>
-                    <th>密钥</th>
+                    <th>权重</th>
                     <th>备注</th>
+                    <th>IP</th>
+                    <th>ID</th>
+                    <th>密钥</th>
                     <th>管理</th>
                 </tr>
             </thead>
             <tbody>
                 {{range $server := .Servers}}
                 <tr>
-                    <td>{{$server.ID}}({{$server.DisplayIndex}})</td>
+                    <td>{{$server.DisplayIndex}}</td>
                     <td>{{$server.Name}}</td>
-                    <td>{{$server.Tag}}</td>
                     <td>{{$server.Host.IP}}</td>
+                    <td>{{$server.ID}}</td>
                     <td>{{$server.Secret}}</td>
-                    <td style="word-break: break-word;">{{$server.Note}}</td>
                     <td>
                         <div class="ui mini icon buttons">
                             <button class="ui button" onclick="addOrEditServer({{$server.Marshal}})">
@@ -38,7 +36,7 @@
                             </button>
                             <button class="ui button"
                                 onclick="showConfirm('删除节点','确认删除此监控节点？',deleteRequest,'/api/server/'+{{$server.ID}})">
-                                <i class="trash alternate outline icon"></i>
+                                <i class="delete icon"></i>
                             </button>
                         </div>
                     </td>

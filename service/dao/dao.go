@@ -1,75 +1,69 @@
 package dao
 
 import (
-	"fmt"
 	"sort"
 	"sync"
 
 	"github.com/patrickmn/go-cache"
-	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 
-	"github.com/xos/probe/model"
-	pb "github.com/xos/probe/proto"
+	"github.com/XOS/Probe/model"
+	pb "github.com/XOS/Probe/proto"
 )
-
-var Version = "v2.1.11" // ！！记得修改 README 中的 badge 版本！！
 
 const (
 	SnapshotDelay = 3
 	ReportDelay   = 2
 )
 
-var (
-	Conf  *model.Config
-	Cache *cache.Cache
-	DB    *gorm.DB
+// Conf ..
+var Conf *model.Config
 
-	ServerList map[uint64]*model.Server
-	SecretToID map[string]uint64
-	ServerLock sync.RWMutex
+// Cache ..
+var Cache *cache.Cache
 
-	SortedServerList []*model.Server
-	SortedServerLock sync.RWMutex
-)
+// DB ..
+var DB *gorm.DB
+
+// ServerList ..
+var ServerList map[uint64]*model.Server
+var SortedServerList []*model.Server
+
+// ServerLock ..
+var ServerLock sync.RWMutex
+
+// Version ..
+var Version = "debug"
+
+func init() {
+	if len(Version) > 7 {
+		Version = Version[:7]
+	}
+}
 
 func ReSortServer() {
-	ServerLock.RLock()
-	defer ServerLock.RUnlock()
-	SortedServerLock.Lock()
-	defer SortedServerLock.Unlock()
-
 	SortedServerList = []*model.Server{}
 	for _, s := range ServerList {
 		SortedServerList = append(SortedServerList, s)
 	}
 
 	sort.SliceStable(SortedServerList, func(i, j int) bool {
-		if SortedServerList[i].DisplayIndex == SortedServerList[j].DisplayIndex {
-			return SortedServerList[i].ID < SortedServerList[j].ID
-		}
 		return SortedServerList[i].DisplayIndex > SortedServerList[j].DisplayIndex
 	})
 }
 
-// =============== Cron Mixin ===============
-
-var CronLock sync.RWMutex
-var Crons map[uint64]*model.Cron
-var Cron *cron.Cron
-
-func CronTrigger(c *model.Cron) {
+// SendCommand ..
+func SendCommand(cmd *pb.Command) {
 	ServerLock.RLock()
 	defer ServerLock.RUnlock()
-	for j := 0; j < len(c.Servers); j++ {
-		if ServerList[c.Servers[j]].TaskStream != nil {
-			ServerList[c.Servers[j]].TaskStream.Send(&pb.Task{
-				Id:   c.ID,
-				Data: c.Command,
-				Type: model.TaskTypeCommand,
-			})
-		} else {
-			SendNotification(fmt.Sprintf("计划任务：%s，服务器：%d 离线，无法执行。", c.Name, c.Servers[j]), false)
+	var err error
+	for _, server := range ServerList {
+		if server.Stream != nil {
+			err = server.Stream.Send(cmd)
+			if err != nil {
+				close(server.StreamClose)
+				server.Stream = nil
+			}
 		}
 	}
 }

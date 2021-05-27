@@ -6,24 +6,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/xos/probe/model"
-	"github.com/xos/probe/service/dao"
+	"github.com/XOS/Probe/model"
+	"github.com/XOS/Probe/service/dao"
 )
 
-var adminPage = map[string]bool{
-	"/server":       true,
-	"/monitor":      true,
-	"/setting":      true,
-	"/notification": true,
-	"/cron":         true,
-}
-
+// CommonEnvironment ..
 func CommonEnvironment(c *gin.Context, data map[string]interface{}) gin.H {
 	data["MatchedPath"] = c.MustGet("MatchedPath")
 	data["Version"] = dao.Version
-	data["Conf"] = dao.Conf
-	// 是否是管理页面
-	data["IsAdminPage"] = adminPage[data["MatchedPath"].(string)]
 	// 站点标题
 	if t, has := data["Title"]; !has {
 		data["Title"] = dao.Conf.Site.Brand
@@ -37,6 +27,7 @@ func CommonEnvironment(c *gin.Context, data map[string]interface{}) gin.H {
 	return data
 }
 
+// RecordPath ..
 func RecordPath(c *gin.Context) {
 	url := c.Request.URL.String()
 	for _, p := range c.Params {
