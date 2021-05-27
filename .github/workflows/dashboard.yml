@@ -40,14 +40,12 @@ jobs:
           docker push $ALI_IMAGE_NAME
       - name: Purge jsdelivr cache
         run: |
-          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/install.sh
-          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/fetch.sh
+          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/probe.sh
           curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/probe-agent.service
           curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/docker-compose.yaml
           curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/probe@master/script/config.yaml
           LOWER_USERNAME=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/install.sh
-          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/fetch.sh
+          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/probe.sh
           curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/probe-agent.service
           curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/docker-compose.yaml
           curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/probe@master/script/config.yaml
