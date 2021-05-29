@@ -4,6 +4,12 @@
   }
 }
 
+@media only screen and (max-width: 767px) {
+  .ui.card>.content>.header:not(.ui), .ui.cards>.card>.content>.header:not(.ui) {
+    margin-top: 0.5em;
+  }
+}
+
 body {
   background: rgb(255 255 255 / 50%);
 }
@@ -73,8 +79,6 @@ a {
 .ui.four.cards>.card {
     position: relative;
     border-radius: 10px;
-    margin-right: .5em;
-    margin-bottom: .5em;
     display: inline-block;
     -webkit-user-select: none;
     -moz-user-select: none;
